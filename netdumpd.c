@@ -91,6 +91,11 @@ struct netdump_pkt {
 	uint8_t		data[NETDUMP_DATASIZE];
 } __packed;
 
+enum artifact {
+	VMCORE,
+	INFO,
+};
+
 #define	VMCORE_BUFSZ	(128 * 1024)
 
 struct netdump_client {
@@ -792,10 +797,25 @@ handle_vmcore(struct netdump_client *client, struct netdump_pkt *pkt)
 }
 
 static void
-symlink_client_file(struct netdump_client *client, const char *file)
+symlink_client_file(struct netdump_client *client, enum artifact which)
 {
 	char symlinkpath[MAXPATHLEN], *symlinktarget;
+	const char *file, *target;
 	size_t len;
+
+	switch (which) {
+	case VMCORE:
+		file = "vmcore";
+		target = client->corefilename;
+		break;
+	case INFO:
+		file = "info";
+		target = client->infofilename;
+		break;
+	default:
+		LOGERR("symlink which: %d", which);
+		return;
+	}
 
 	len = snprintf(symlinkpath, sizeof(symlinkpath), "%s/%s.%s.last",
 	    client->path, file, client->hostname);
@@ -807,7 +827,7 @@ symlink_client_file(struct netdump_client *client, const char *file)
 		LOGERR_PERROR("unlinkat()");
 		return;
 	}
-	symlinktarget = strdup(client->corefilename);
+	symlinktarget = strdup(target);
 	if (symlinkat(basename(symlinktarget), g_dumpdir_fd, symlinkpath) != 0)
 		LOGERR_PERROR("symlink()");
 	free(symlinktarget);
@@ -824,8 +844,8 @@ handle_finish(struct netdump_client *client, struct netdump_pkt *pkt)
 		LOGERR_PERROR("fsync()");
 
 	/* Create symlinks to the new vmcore and info files. */
-	symlink_client_file(client, "vmcore");
-	symlink_client_file(client, "info");
+	symlink_client_file(client, VMCORE);
+	symlink_client_file(client, INFO);
 
 	LOGINFO("Completed dump from client %s [%s]\n", client->hostname,
 	    client_ntoa(client));
